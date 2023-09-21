@@ -1,56 +1,60 @@
 #pragma once
 #include <mutex>
-#include <vector>
 
+typedef bool(__fastcall* m_tCallbackPP)(void*, void*);
 /*
 	Function definition needs to be declared as:
-		bool __fastcall Func(void* m_GenericArg, void* m_Arg)
+		bool __fastcall Func(void* m_Class, void* m_Data)
 
 	Return Value:
 		false - Remove callback
 		true - Continue running callback
 */
+
 struct CallbackPP_t
 {
 	std::mutex m_Mutex;
-	std::vector<std::pair<void*, void*>> m_Funcs;
 
-	__inline bool TryLock()
+	struct Node_t
 	{
-		return m_Mutex.try_lock();
-	}
+		Node_t* m_Next = nullptr;
+		m_tCallbackPP m_Callback = nullptr;
+		void* m_Class = nullptr;
+		void* m_Data = nullptr;
 
-	__inline void Unlock()
-	{
-		m_Mutex.unlock();
-	}
-
-	__inline std::vector<std::pair<void*, void*>>::iterator Begin()
-	{
-		return m_Funcs.begin();
-	}
-
-	__inline std::vector<std::pair<void*, void*>>::iterator End()
-	{
-		return m_Funcs.end();
-	}
-
-	__inline std::vector<std::pair<void*, void*>>::iterator Remove(std::vector<std::pair<void*, void*>>::iterator m_It)
-	{
-		return m_Funcs.erase(m_It);
-	}
+		Node_t(m_tCallbackPP p_Callback, void* p_Class, void* p_Data = nullptr)
+		{
+			m_Callback	= p_Callback;
+			m_Class		= p_Class;
+			m_Data		= p_Data;
+		}
+	};
+	Node_t* m_Nodes = nullptr;
 
 	// Don't use this, if you don't have mutex locked!
-	__inline void RunUnsafe(void* m_GenericArg)
+	__inline void Run()
 	{
-		for (auto m_It = Begin(); m_It != End();)
+		Node_t* m_PrevNode	= nullptr;
+		Node_t* m_CurNode	= m_Nodes;
+		while (m_CurNode)
 		{
-			std::pair<void*, void*>& m_Callback = *m_It;
+			if (m_CurNode->m_Callback(m_CurNode->m_Class, m_CurNode->m_Data))
+			{
+				m_PrevNode	= m_CurNode;
+				m_CurNode	= m_CurNode->m_Next;
+				continue;
+			}
 
-			if (reinterpret_cast<bool(__fastcall*)(void*, void*)>(m_Callback.first)(m_GenericArg, m_Callback.second))
-				++m_It;
+			// Remove node
+			Node_t* m_NextNode = m_CurNode->m_Next;
+			delete m_CurNode;
+
+			if (m_PrevNode)
+				m_PrevNode->m_Next = m_NextNode;
 			else
-				m_It = Remove(m_It);
+				m_Nodes = m_NextNode;
+
+			m_CurNode = m_NextNode;
 		}
 	}
 
@@ -58,44 +62,34 @@ struct CallbackPP_t
 	*	If you need to have callbacks run now, use this!
 	*	WARNING: This will do 'spinlock' till mutex is available again.
 	*/
-	__declspec(noinline) void ForceRun(void* m_GenericArg = nullptr)
+	__declspec(noinline) void ForceRun()
 	{
-		std::lock_guard<std::mutex> m_LockGuard(m_Mutex);
-		RunUnsafe(m_GenericArg);
+		m_Mutex.lock();
+
+		Run();
+
+		m_Mutex.unlock();
 	}
 
-	/* 
-	*	This is generic run, but it can fail if there is other thread adding new callback.
-	*	Check 'ForceRun', if you need to run callbacks now.
-	*/
-	__inline void Run(void* m_GenericArg = nullptr)
+	// If you have important thread that shouldn't spinlock and call callbacks only when needed use this.
+	__inline void TryRun()
 	{
-		if (!TryLock())
+		if (!m_Mutex.try_lock())
 			return;
 
-		RunUnsafe(m_GenericArg);
+		Run();
 
-		Unlock();
+		m_Mutex.unlock();
 	}
 
-	void Add(void* m_Function, void* m_Arg = nullptr)
+	void Add(void* p_Function, void* p_Class, void* p_Data = nullptr)
 	{
-		std::lock_guard<std::mutex> m_LockGuard(m_Mutex);
-		m_Funcs.emplace_back(m_Function, m_Arg);
-	}
-
-	bool AddOnce(void* m_Function, void* m_Arg = nullptr)
-	{
-		std::lock_guard<std::mutex> m_LockGuard(m_Mutex);
-
-		for (auto& Pair : m_Funcs)
+		m_Mutex.lock();
 		{
-			// Already exist...
-			if (Pair.first == m_Function && Pair.second == m_Arg)
-				return false;
+			Node_t* m_NewNode = new Node_t(reinterpret_cast<m_tCallbackPP>(p_Function), p_Class, p_Data);
+			m_NewNode->m_Next = m_Nodes;
+			m_Nodes = m_NewNode;
 		}
-
-		m_Funcs.emplace_back(m_Function, m_Arg);
-		return true;
+		m_Mutex.unlock();
 	}
 };
