@@ -29,11 +29,39 @@ struct CallbackPP_t
 			m_Data		= p_Data;
 		}
 	};
-	Node_t* m_Nodes = nullptr;
+	Node_t* m_Nodes			= nullptr;
+	Node_t* m_QueueNodes	= nullptr;
 
-	// Don't use this, if you don't have mutex locked!
-	__inline void Run()
+	__inline void MoveQueueNodes()
 	{
+		Node_t* m_LastQueueNode = m_QueueNodes;
+		while (m_LastQueueNode->m_Next)
+			m_LastQueueNode = m_LastQueueNode->m_Next;
+
+		m_LastQueueNode->m_Next = m_Nodes;
+		m_Nodes = m_QueueNodes;
+
+		m_QueueNodes = nullptr;
+	}
+
+	// WARNING: Can cause spin-lock!
+	void PushQueueNodes()
+	{
+		m_Mutex.lock();
+
+		MoveQueueNodes();
+
+		m_Mutex.unlock();
+	}
+
+	void Run()
+	{
+		if (m_QueueNodes && m_Mutex.try_lock())
+		{
+			MoveQueueNodes();
+			m_Mutex.unlock();
+		}
+
 		Node_t* m_PrevNode	= nullptr;
 		Node_t* m_CurNode	= m_Nodes;
 		while (m_CurNode)
@@ -58,37 +86,13 @@ struct CallbackPP_t
 		}
 	}
 
-	/*
-	*	If you need to have callbacks run now, use this!
-	*	WARNING: This will do 'spinlock' till mutex is available again.
-	*/
-	__declspec(noinline) void ForceRun()
-	{
-		m_Mutex.lock();
-
-		Run();
-
-		m_Mutex.unlock();
-	}
-
-	// If you have important thread that shouldn't spinlock and call callbacks only when needed use this.
-	__inline void TryRun()
-	{
-		if (!m_Mutex.try_lock())
-			return;
-
-		Run();
-
-		m_Mutex.unlock();
-	}
-
 	void Add(void* p_Function, void* p_Class, void* p_Data = nullptr)
 	{
 		m_Mutex.lock();
 		{
 			Node_t* m_NewNode = new Node_t(reinterpret_cast<m_tCallbackPP>(p_Function), p_Class, p_Data);
-			m_NewNode->m_Next = m_Nodes;
-			m_Nodes = m_NewNode;
+			m_NewNode->m_Next = m_QueueNodes;
+			m_QueueNodes = m_NewNode;
 		}
 		m_Mutex.unlock();
 	}
