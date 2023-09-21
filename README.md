@@ -5,16 +5,16 @@ CallbackPP is a header only C++ library that implements simple callback struct t
 ```cpp
 #include "CallbackPP.hpp"
 
-bool __fastcall ExampleCallback(int* m_GenericArg, int* m_Arg)
+bool __fastcall ExampleCallback(CExampleClass* p_Class, int* p_Integer)
 {
-    if (!m_GenericArg)
+    if (p_Class->m_Stop)
     {
-        printf("Deleting Callback: %d\n", *m_Arg);
-        delete m_Arg;
+        printf("Stopping callback: %d\n", *p_Integer);
+        delete p_Integer;
         return false;
     }
 
-    printf("GenericArg: %d | m_Arg: %d\n", *m_GenericArg, *m_Arg);
+    printf("Called callback: %d\n", *p_Integer);
     return true;
 }
 
@@ -23,38 +23,33 @@ CallbackPP_t g_Callback;
 
 void Thread()
 {
-    for (int i = 0; 3 > i; ++i)
-    {
-        static int m_GenericValue;
-        m_GenericValue = i;
+     for (int i = 0; 2 > i; ++i)
+        g_Callback.Run();
 
-        g_Callback.Run(&m_GenericValue);
-    }
-
+    g_ExampleClass.m_Stop = true;
     g_Callback.Run();
 }
 
 // Somewhere in your project...
-for (int i = 0; 4 > i; ++i)
-    g_Callback.Add(ExampleCallback, new int(i));
+for (int i = 0; 5 > i; ++i)
+    g_Callback.Add(ExampleCallback, &g_ExampleClass, new int(i));
 ```
 
 ### Output:
 ```
-GenericArg: 0 | m_Arg: 0
-GenericArg: 0 | m_Arg: 1
-GenericArg: 0 | m_Arg: 2
-GenericArg: 0 | m_Arg: 3
-GenericArg: 1 | m_Arg: 0
-GenericArg: 1 | m_Arg: 1
-GenericArg: 1 | m_Arg: 2
-GenericArg: 1 | m_Arg: 3
-GenericArg: 2 | m_Arg: 0
-GenericArg: 2 | m_Arg: 1
-GenericArg: 2 | m_Arg: 2
-GenericArg: 2 | m_Arg: 3
-Deleting Callback: 0
-Deleting Callback: 1
-Deleting Callback: 2
-Deleting Callback: 3
+Called callback: 4
+Called callback: 3
+Called callback: 2
+Called callback: 1
+Called callback: 0
+Called callback: 4
+Called callback: 3
+Called callback: 2
+Called callback: 1
+Called callback: 0
+Stopping callback: 4
+Stopping callback: 3
+Stopping callback: 2
+Stopping callback: 1
+Stopping callback: 0
 ```
