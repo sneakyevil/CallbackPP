@@ -1,10 +1,12 @@
 #pragma once
 #include <mutex>
 
-typedef bool(__fastcall* m_tCallbackPP)(void*, void*);
+typedef bool(__fastcall* Fn_CallbackPP)(void*, void*);
 /*
 	Function definition needs to be declared as:
-		bool __fastcall Func(void* m_Class, void* m_Data)
+		- bool __fastcall Func(void* pClass, void* pData)
+		or
+		- bool __fastcall Func(void* pClass)
 
 	Return Value:
 		false - Remove callback
@@ -17,28 +19,26 @@ struct CallbackPP_t
 
 	struct Node_t
 	{
-		Node_t* m_Next = nullptr;
-		m_tCallbackPP m_Callback = nullptr;
-		void* m_Class = nullptr;
-		void* m_Data = nullptr;
+		Node_t* m_Next;
+		Fn_CallbackPP m_Callback;
+		void* m_Class;
+		void* m_Data;
 
-		Node_t(m_tCallbackPP p_Callback, void* p_Class, void* p_Data = nullptr)
-		{
-			m_Callback	= p_Callback;
-			m_Class		= p_Class;
-			m_Data		= p_Data;
-		}
+		Node_t(Fn_CallbackPP p_Callback, void* p_Class, void* p_Data = nullptr) 
+			: m_Callback(p_Callback), m_Class(p_Class), m_Data(p_Data)
+		{ }
 	};
 	Node_t* m_Nodes			= nullptr;
 	Node_t* m_QueueNodes	= nullptr;
 
 	__inline void MoveQueueNodes()
 	{
-		Node_t* m_LastQueueNode = m_QueueNodes;
-		while (m_LastQueueNode->m_Next)
-			m_LastQueueNode = m_LastQueueNode->m_Next;
+		Node_t* pLastQueueNode = m_QueueNodes;
+		while (pLastQueueNode->m_Next) {
+			pLastQueueNode = pLastQueueNode->m_Next;
+		}
 
-		m_LastQueueNode->m_Next = m_Nodes;
+		pLastQueueNode->m_Next = m_Nodes;
 		m_Nodes = m_QueueNodes;
 
 		m_QueueNodes = nullptr;
@@ -62,38 +62,42 @@ struct CallbackPP_t
 			m_Mutex.unlock();
 		}
 
-		Node_t* m_PrevNode	= nullptr;
-		Node_t* m_CurNode	= m_Nodes;
-		while (m_CurNode)
+		Node_t* pPrevNode = nullptr;
+		Node_t* pNode = m_Nodes;
+		while (pNode)
 		{
-			if (m_CurNode->m_Callback(m_CurNode->m_Class, m_CurNode->m_Data))
+			if (pNode->m_Callback(pNode->m_Class, pNode->m_Data))
 			{
-				m_PrevNode	= m_CurNode;
-				m_CurNode	= m_CurNode->m_Next;
+				pPrevNode = pNode;
+				pNode = pNode->m_Next;
 				continue;
 			}
 
 			// Remove node
-			Node_t* m_NextNode = m_CurNode->m_Next;
-			delete m_CurNode;
+			Node_t* pNextNode = pNode->m_Next;
+			delete pNode;
 
-			if (m_PrevNode)
-				m_PrevNode->m_Next = m_NextNode;
-			else
-				m_Nodes = m_NextNode;
+			if (pPrevNode) {
+				pPrevNode->m_Next = pNextNode;
+			}
+			else {
+				m_Nodes = pNextNode;
+			}
 
-			m_CurNode = m_NextNode;
+			pNode = pNextNode;
 		}
 	}
 
-	void Add(void* p_Function, void* p_Class, void* p_Data = nullptr)
+	void Add(void* p_Callback, void* p_Class, void* p_Data = nullptr)
 	{
 		m_Mutex.lock();
+		
+		Node_t* pNode = new Node_t(reinterpret_cast<Fn_CallbackPP>(p_Callback), p_Class, p_Data);
 		{
-			Node_t* m_NewNode = new Node_t(reinterpret_cast<m_tCallbackPP>(p_Function), p_Class, p_Data);
-			m_NewNode->m_Next = m_QueueNodes;
-			m_QueueNodes = m_NewNode;
+			pNode->m_Next = m_QueueNodes;
+			m_QueueNodes = pNode;
 		}
+
 		m_Mutex.unlock();
 	}
 };
